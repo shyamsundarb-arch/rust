@@ -1,15 +1,6 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// min-lldb-version: 310
+// Require a gdb or lldb that can read DW_TAG_variant_part.
+// min-gdb-version: 8.2
+// rust-lldb
 
 // compile-flags:-g
 
@@ -19,16 +10,16 @@
 // gdb-command:run
 
 // gdb-command:print case1
-// gdb-check:$1 = {{RUST$ENUM$DISR = Case1, __0 = 0, __1 = 31868, __2 = 31868, __3 = 31868, __4 = 31868}, {RUST$ENUM$DISR = Case1, __0 = 0, __1 = 2088533116, __2 = 2088533116}, {RUST$ENUM$DISR = Case1, __0 = 0, __1 = 8970181431921507452}}
+// gdbr-check:$1 = tuple_style_enum::Regular::Case1(0, 31868, 31868, 31868, 31868)
 
 // gdb-command:print case2
-// gdb-check:$2 = {{RUST$ENUM$DISR = Case2, __0 = 0, __1 = 4369, __2 = 4369, __3 = 4369, __4 = 4369}, {RUST$ENUM$DISR = Case2, __0 = 0, __1 = 286331153, __2 = 286331153}, {RUST$ENUM$DISR = Case2, __0 = 0, __1 = 1229782938247303441}}
+// gdbr-check:$2 = tuple_style_enum::Regular::Case2(0, 286331153, 286331153)
 
 // gdb-command:print case3
-// gdb-check:$3 = {{RUST$ENUM$DISR = Case3, __0 = 0, __1 = 22873, __2 = 22873, __3 = 22873, __4 = 22873}, {RUST$ENUM$DISR = Case3, __0 = 0, __1 = 1499027801, __2 = 1499027801}, {RUST$ENUM$DISR = Case3, __0 = 0, __1 = 6438275382588823897}}
+// gdbr-check:$3 = tuple_style_enum::Regular::Case3(0, 6438275382588823897)
 
 // gdb-command:print univariant
-// gdb-check:$4 = {{__0 = -1}}
+// gdbr-check:$4 = tuple_style_enum::Univariant::TheOnlyCase(-1)
 
 
 // === LLDB TESTS ==================================================================================
@@ -36,16 +27,16 @@
 // lldb-command:run
 
 // lldb-command:print case1
-// lldb-check:[...]$0 = Case1(0, 31868, 31868, 31868, 31868)
+// lldbr-check:(tuple_style_enum::Regular::Case1) case1 = { = 0 = 31868 = 31868 = 31868 = 31868 }
 
 // lldb-command:print case2
-// lldb-check:[...]$1 = Case2(0, 286331153, 286331153)
+// lldbr-check:(tuple_style_enum::Regular::Case2) case2 = Case2 { Case1: 0, Case2: 286331153, Case3: 286331153 }
 
 // lldb-command:print case3
-// lldb-check:[...]$2 = Case3(0, 6438275382588823897)
+// lldbr-check:(tuple_style_enum::Regular::Case3) case3 = Case3 { Case1: 0, Case2: 6438275382588823897 }
 
 // lldb-command:print univariant
-// lldb-check:[...]$3 = TheOnlyCase(-1)
+// lldbr-check:(tuple_style_enum::Univariant) univariant = { TheOnlyCase = { = -1 } }
 
 #![allow(unused_variables)]
 #![feature(omit_gdb_pretty_printer_section)]

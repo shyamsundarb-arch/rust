@@ -1,13 +1,3 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // min-lldb-version: 310
 
 // compile-flags:-g
@@ -17,21 +7,28 @@
 // gdb-command:run
 
 // gdb-command:print no_padding1
-// gdb-check:$1 = {__0 = {__0 = 0, __1 = 1}, __1 = 2, __2 = 3}
+// gdbg-check:$1 = {__0 = {__0 = 0, __1 = 1}, __1 = 2, __2 = 3}
+// gdbr-check:$1 = ((0, 1), 2, 3)
 // gdb-command:print no_padding2
-// gdb-check:$2 = {__0 = 4, __1 = {__0 = 5, __1 = 6}, __2 = 7}
+// gdbg-check:$2 = {__0 = 4, __1 = {__0 = 5, __1 = 6}, __2 = 7}
+// gdbr-check:$2 = (4, (5, 6), 7)
 // gdb-command:print no_padding3
-// gdb-check:$3 = {__0 = 8, __1 = 9, __2 = {__0 = 10, __1 = 11}}
+// gdbg-check:$3 = {__0 = 8, __1 = 9, __2 = {__0 = 10, __1 = 11}}
+// gdbr-check:$3 = (8, 9, (10, 11))
 
 // gdb-command:print internal_padding1
-// gdb-check:$4 = {__0 = 12, __1 = {__0 = 13, __1 = 14}}
+// gdbg-check:$4 = {__0 = 12, __1 = {__0 = 13, __1 = 14}}
+// gdbr-check:$4 = (12, (13, 14))
 // gdb-command:print internal_padding2
-// gdb-check:$5 = {__0 = 15, __1 = {__0 = 16, __1 = 17}}
+// gdbg-check:$5 = {__0 = 15, __1 = {__0 = 16, __1 = 17}}
+// gdbr-check:$5 = (15, (16, 17))
 
 // gdb-command:print padding_at_end1
-// gdb-check:$6 = {__0 = 18, __1 = {__0 = 19, __1 = 20}}
+// gdbg-check:$6 = {__0 = 18, __1 = {__0 = 19, __1 = 20}}
+// gdbr-check:$6 = (18, (19, 20))
 // gdb-command:print padding_at_end2
-// gdb-check:$7 = {__0 = {__0 = 21, __1 = 22}, __1 = 23}
+// gdbg-check:$7 = {__0 = {__0 = 21, __1 = 22}, __1 = 23}
+// gdbr-check:$7 = ((21, 22), 23)
 
 
 // === LLDB TESTS ==================================================================================
@@ -39,21 +36,95 @@
 // lldb-command:run
 
 // lldb-command:print no_padding1
-// lldb-check:[...]$0 = ((0, 1), 2, 3)
+// lldbg-check:[...]$0 = { 0 = { 0 = 0 1 = 1 } 1 = 2 2 = 3 }
+// lldbr-check:(((u32, u32), u32, u32)) no_padding1 = { 0 = { 0 = 0 1 = 1 } 1 = 2 2 = 3 }
 // lldb-command:print no_padding2
-// lldb-check:[...]$1 = (4, (5, 6), 7)
+// lldbg-check:[...]$1 = { 0 = 4 1 = { 0 = 5 1 = 6 } 2 = 7 }
+// lldbr-check:((u32, (u32, u32), u32)) no_padding2 = { 0 = 4 1 = { 0 = 5 1 = 6 } 2 = 7 }
 // lldb-command:print no_padding3
-// lldb-check:[...]$2 = (8, 9, (10, 11))
+// lldbg-check:[...]$2 = { 0 = 8 1 = 9 2 = { 0 = 10 1 = 11 } }
+// lldbr-check:((u32, u32, (u32, u32))) no_padding3 = { 0 = 8 1 = 9 2 = { 0 = 10 1 = 11 } }
 
 // lldb-command:print internal_padding1
-// lldb-check:[...]$3 = (12, (13, 14))
+// lldbg-check:[...]$3 = { 0 = 12 1 = { 0 = 13 1 = 14 } }
+// lldbr-check:((i16, (i32, i32))) internal_padding1 = { 0 = 12 1 = { 0 = 13 1 = 14 } }
 // lldb-command:print internal_padding2
-// lldb-check:[...]$4 = (15, (16, 17))
+// lldbg-check:[...]$4 = { 0 = 15 1 = { 0 = 16 1 = 17 } }
+// lldbr-check:((i16, (i16, i32))) internal_padding2 = { 0 = 15 1 = { 0 = 16 1 = 17 } }
 
 // lldb-command:print padding_at_end1
-// lldb-check:[...]$5 = (18, (19, 20))
+// lldbg-check:[...]$5 = { 0 = 18 1 = { 0 = 19 1 = 20 } }
+// lldbr-check:((i32, (i32, i16))) padding_at_end1 = { 0 = 18 1 = { 0 = 19 1 = 20 } }
 // lldb-command:print padding_at_end2
-// lldb-check:[...]$6 = ((21, 22), 23)
+// lldbg-check:[...]$6 = { 0 = { 0 = 21 1 = 22 } 1 = 23 }
+// lldbr-check:(((i32, i16), i32)) padding_at_end2 = { 0 = { 0 = 21 1 = 22 } 1 = 23 }
+
+
+// === CDB TESTS ==================================================================================
+
+// cdb-command: g
+
+// cdb-command:dx no_padding1,d
+// cdb-check:no_padding1,d [...]: ((0, 1), 2, 3) [Type: tuple$<tuple$<u32,u32>,u32,u32>]
+// cdb-check:[...][0]              : (0, 1) [Type: tuple$<u32,u32>]
+// cdb-check:[...][1]              : 2 [Type: [...]]
+// cdb-check:[...][2]              : 3 [Type: [...]]
+// cdb-command:dx no_padding1.__0,d
+// cdb-check:no_padding1.__0,d [...]: (0, 1) [Type: tuple$<u32,u32>]
+// cdb-check:[...][0]              : 0 [Type: [...]]
+// cdb-check:[...][1]              : 1 [Type: [...]]
+// cdb-command:dx no_padding2,d
+// cdb-check:no_padding2,d [...]: (4, (5, 6), 7) [Type: tuple$<u32,tuple$<u32,u32>,u32>]
+// cdb-check:[...][0]              : 4 [Type: [...]]
+// cdb-check:[...][1]              : (5, 6) [Type: tuple$<u32,u32>]
+// cdb-check:[...][2]              : 7 [Type: [...]]
+// cdb-command:dx no_padding2.__1,d
+// cdb-check:no_padding2.__1,d [...]: (5, 6) [Type: tuple$<u32,u32>]
+// cdb-check:[...][0]              : 5 [Type: [...]]
+// cdb-check:[...][1]              : 6 [Type: [...]]
+// cdb-command:dx no_padding3,d
+// cdb-check:no_padding3,d [...]: (8, 9, (10, 11)) [Type: tuple$<u32,u32,tuple$<u32,u32> >]
+// cdb-check:[...][0]              : 8 [Type: [...]]
+// cdb-check:[...][1]              : 9 [Type: [...]]
+// cdb-check:[...][2]              : (10, 11) [Type: tuple$<u32,u32>]
+// cdb-command:dx no_padding3.__2,d
+// cdb-check:no_padding3.__2,d [...]: (10, 11) [Type: tuple$<u32,u32>]
+// cdb-check:[...][0]              : 10 [Type: [...]]
+// cdb-check:[...][1]              : 11 [Type: [...]]
+
+// cdb-command:dx internal_padding1,d
+// cdb-check:internal_padding1,d [...]: (12, (13, 14)) [Type: tuple$<i16,tuple$<i32,i32> >]
+// cdb-check:[...][0]              : 12 [Type: [...]]
+// cdb-check:[...][1]              : (13, 14) [Type: tuple$<i32,i32>]
+// cdb-command:dx internal_padding1.__1,d
+// cdb-check:internal_padding1.__1,d [...]: (13, 14) [Type: tuple$<i32,i32>]
+// cdb-check:[...][0]              : 13 [Type: [...]]
+// cdb-check:[...][1]              : 14 [Type: [...]]
+// cdb-command:dx internal_padding2,d
+// cdb-check:internal_padding2,d [...]: (15, (16, 17)) [Type: tuple$<i16,tuple$<i16,i32> >]
+// cdb-check:[...][0]              : 15 [Type: [...]]
+// cdb-check:[...][1]              : (16, 17) [Type: tuple$<i16,i32>]
+// cdb-command:dx internal_padding2.__1,d
+// cdb-check:internal_padding2.__1,d [...]: (16, 17) [Type: tuple$<i16,i32>]
+// cdb-check:[...][0]              : 16 [Type: [...]]
+// cdb-check:[...][1]              : 17 [Type: [...]]
+
+// cdb-command:dx padding_at_end1,d
+// cdb-check:padding_at_end1,d [...]: (18, (19, 20)) [Type: tuple$<i32,tuple$<i32,i16> >]
+// cdb-check:[...][0]              : 18 [Type: [...]]
+// cdb-check:[...][1]              : (19, 20) [Type: tuple$<i32,i16>]
+// cdb-command:dx padding_at_end1.__1,d
+// cdb-check:padding_at_end1.__1,d [...][Type: tuple$<i32,i16>]
+// cdb-check:[...][0]              : 19 [Type: [...]]
+// cdb-check:[...][1]              : 20 [Type: [...]]
+// cdb-command:dx padding_at_end2,d
+// cdb-check:padding_at_end2,d [...]: ((21, 22), 23) [Type: tuple$<tuple$<i32,i16>,i32>]
+// cdb-check:[...][0]              : (21, 22) [Type: tuple$<i32,i16>]
+// cdb-check:[...][1]              : 23 [Type: [...]]
+// cdb-command:dx padding_at_end2.__0,d
+// cdb-check:padding_at_end2.__0,d [...]: (21, 22) [Type: tuple$<i32,i16>]
+// cdb-check:[...][0]              : 21 [Type: [...]]
+// cdb-check:[...][1]              : 22 [Type: [...]]
 
 #![allow(unused_variables)]
 #![feature(omit_gdb_pretty_printer_section)]

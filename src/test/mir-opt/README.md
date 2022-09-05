@@ -1,44 +1,51 @@
 This folder contains tests for MIR optimizations.
 
-The test format is:
+The `mir-opt` test format emits MIR to extra files that you can automatically update by specifying
+`--bless` on the command line (just like `ui` tests updating `.stderr` files).
+
+# `--bless`able test format
+
+By default 32 bit and 64 bit targets use the same dump files, which can be problematic in the
+presence of pointers in constants or other bit width dependent things. In that case you can add
 
 ```
-(arbitrary rust code)
-// END RUST SOURCE
-// START $file_name_of_some_mir_dump_0
-//  $expected_line_0
-// ...
-// $expected_line_N
-// END $file_name_of_some_mir_dump_0
-// ...
-// START $file_name_of_some_mir_dump_N
-//  $expected_line_0
-// ...
-// $expected_line_N
-// END $file_name_of_some_mir_dump_N
+// EMIT_MIR_FOR_EACH_BIT_WIDTH
 ```
 
-All the test information is in comments so the test is runnable.
+to your test, causing separate files to be generated for 32bit and 64bit systems.
 
-For each $file_name, compiletest expects [$expected_line_0, ...,
-$expected_line_N] to appear in the dumped MIR in order.  Currently it allows
-other non-matched lines before, after and in-between.  
+## Unit testing
 
-Lines match ignoring whitespace, and the prefix "//" is removed.
+If you are only testing the behavior of a particular mir-opt pass on some specific input (as is
+usually the case), you should add
 
-It also currently strips trailing comments -- partly because the full file path
-in "scope comments" is unpredictable and partly because tidy complains about
-the lines being too long.
+```
+// unit-test: PassName
+```
 
-compiletest handles dumping the MIR before and after every pass for you.  The
-test writer only has to specify the file names of the dumped files (not the
-full path to the file) and what lines to expect.  I added an option to rustc
-that tells it to dump the mir into some directly (rather then always dumping to
-the current directory).  
+to the top of the file. This makes sure that other passes don't run which means you'll get the input
+you expected and your test won't break when other code changes.
 
-Lines match ignoring whitespace, and the prefix "//" is removed of course.
+## Emit a diff of the mir for a specific optimization
 
-It also currently strips trailing comments -- partly because the full file path
-in "scope comments" is unpredictable and partly because tidy complains about
-the lines being too long.
+This is what you want most often when you want to see how an optimization changes the MIR.
 
+```
+// EMIT_MIR $file_name_of_some_mir_dump.diff
+```
+
+## Emit mir after a specific optimization
+
+Use this if you are just interested in the final state after an optimization.
+
+```
+// EMIT_MIR $file_name_of_some_mir_dump.after.mir
+```
+
+## Emit mir before a specific optimization
+
+This exists mainly for completeness and is rarely useful.
+
+```
+// EMIT_MIR $file_name_of_some_mir_dump.before.mir
+```

@@ -1,57 +1,46 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// revisions: rpass1 rpass2
+// revisions: cfail1 cfail2 cfail3 cfail4
+// compile-flags: -Z query-dep-graph
+// [cfail3]compile-flags: -Zincremental-relative-spans
+// [cfail4]compile-flags: -Zincremental-relative-spans
+// build-pass (FIXME(62277): could be check-pass?)
 
 #![allow(warnings)]
 #![feature(rustc_attrs)]
+#![crate_type = "rlib"]
 
 // Here the only thing which changes is the string constant in `x`.
 // Therefore, the compiler deduces (correctly) that typeck is not
 // needed even for callers of `x`.
-//
-// It is not entirely clear why `TransCrateItem` invalidates `y` and
-// `z`, actually, I think it's because of the structure of
-// trans. -nmatsakis
 
-fn main() { }
-
-mod x {
-    #[cfg(rpass1)]
+pub mod x {
+    #[cfg(any(cfail1, cfail3))]
     pub fn x() {
-        println!("1");
+        println!("{}", "1");
     }
 
-    #[cfg(rpass2)]
-    #[rustc_dirty(label="TypeckItemBody", cfg="rpass2")]
-    #[rustc_dirty(label="TransCrateItem", cfg="rpass2")]
+    #[cfg(any(cfail2, cfail4))]
+    #[rustc_clean(except = "hir_owner,hir_owner_nodes,optimized_mir,promoted_mir", cfg = "cfail2")]
+    #[rustc_clean(except = "hir_owner_nodes,promoted_mir", cfg = "cfail4")]
     pub fn x() {
-        println!("2");
+        println!("{}", "2");
     }
 }
 
-mod y {
+pub mod y {
     use x;
 
-    #[rustc_clean(label="TypeckItemBody", cfg="rpass2")]
-    #[rustc_clean(label="TransCrateItem", cfg="rpass2")]
+    #[rustc_clean(cfg = "cfail2")]
+    #[rustc_clean(cfg = "cfail4")]
     pub fn y() {
         x::x();
     }
 }
 
-mod z {
+pub mod z {
     use y;
 
-    #[rustc_clean(label="TypeckItemBody", cfg="rpass2")]
-    #[rustc_clean(label="TransCrateItem", cfg="rpass2")]
+    #[rustc_clean(cfg = "cfail2")]
+    #[rustc_clean(cfg = "cfail4")]
     pub fn z() {
         y::y();
     }

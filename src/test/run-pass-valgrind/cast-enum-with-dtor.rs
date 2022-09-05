@@ -1,19 +1,4 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-pretty : (#23623) problems when  ending with // comments
-
-// no-prefer-dynamic
-
-#![allow(dead_code)]
-#![feature(const_fn, rustc_attrs)]
+#![allow(dead_code, cenum_impl_drop_cast)]
 
 // check dtor calling order when casting enums.
 
@@ -38,7 +23,6 @@ impl Drop for E {
     }
 }
 
-#[rustc_no_mir] // FIXME #27840 MIR miscompiles this.
 fn main() {
     assert_eq!(FLAG.load(Ordering::SeqCst), 0);
     {

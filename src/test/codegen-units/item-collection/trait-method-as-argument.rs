@@ -1,17 +1,8 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager
 
 #![deny(dead_code)]
+#![feature(start)]
 
 trait Trait : Sized {
     fn foo(self) -> Self { self }
@@ -36,27 +27,34 @@ fn take_foo_mut<T, F: FnMut(T) -> T>(mut f: F, arg: T) -> T {
     (f)(arg)
 }
 
-//~ TRANS_ITEM fn trait_method_as_argument::main[0]
-fn main() {
-    //~ TRANS_ITEM fn trait_method_as_argument::take_foo_once[0]<u32, fn(u32) -> u32>
-    //~ TRANS_ITEM fn trait_method_as_argument::{{impl}}[0]::foo[0]
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
+    //~ MONO_ITEM fn take_foo_once::<u32, fn(u32) -> u32 {<u32 as Trait>::foo}>
+    //~ MONO_ITEM fn <u32 as Trait>::foo
+    //~ MONO_ITEM fn <fn(u32) -> u32 {<u32 as Trait>::foo} as std::ops::FnOnce<(u32,)>>::call_once - shim(fn(u32) -> u32 {<u32 as Trait>::foo})
     take_foo_once(Trait::foo, 0u32);
 
-    //~ TRANS_ITEM fn trait_method_as_argument::take_foo_once[0]<char, fn(char) -> char>
-    //~ TRANS_ITEM fn trait_method_as_argument::Trait[0]::foo[0]<char>
+    //~ MONO_ITEM fn take_foo_once::<char, fn(char) -> char {<char as Trait>::foo}>
+    //~ MONO_ITEM fn <char as Trait>::foo
+    //~ MONO_ITEM fn <fn(char) -> char {<char as Trait>::foo} as std::ops::FnOnce<(char,)>>::call_once - shim(fn(char) -> char {<char as Trait>::foo})
     take_foo_once(Trait::foo, 'c');
 
-    //~ TRANS_ITEM fn trait_method_as_argument::take_foo[0]<u32, fn(u32) -> u32>
+    //~ MONO_ITEM fn take_foo::<u32, fn(u32) -> u32 {<u32 as Trait>::foo}>
+    //~ MONO_ITEM fn <fn(u32) -> u32 {<u32 as Trait>::foo} as std::ops::Fn<(u32,)>>::call - shim(fn(u32) -> u32 {<u32 as Trait>::foo})
     take_foo(Trait::foo, 0u32);
 
-    //~ TRANS_ITEM fn trait_method_as_argument::take_foo[0]<char, fn(char) -> char>
+    //~ MONO_ITEM fn take_foo::<char, fn(char) -> char {<char as Trait>::foo}>
+    //~ MONO_ITEM fn <fn(char) -> char {<char as Trait>::foo} as std::ops::Fn<(char,)>>::call - shim(fn(char) -> char {<char as Trait>::foo})
     take_foo(Trait::foo, 'c');
 
-    //~ TRANS_ITEM fn trait_method_as_argument::take_foo_mut[0]<u32, fn(u32) -> u32>
+    //~ MONO_ITEM fn take_foo_mut::<u32, fn(u32) -> u32 {<u32 as Trait>::foo}>
+    //~ MONO_ITEM fn <fn(u32) -> u32 {<u32 as Trait>::foo} as std::ops::FnMut<(u32,)>>::call_mut - shim(fn(u32) -> u32 {<u32 as Trait>::foo})
     take_foo_mut(Trait::foo, 0u32);
 
-    //~ TRANS_ITEM fn trait_method_as_argument::take_foo_mut[0]<char, fn(char) -> char>
+    //~ MONO_ITEM fn take_foo_mut::<char, fn(char) -> char {<char as Trait>::foo}>
+    //~ MONO_ITEM fn <fn(char) -> char {<char as Trait>::foo} as std::ops::FnMut<(char,)>>::call_mut - shim(fn(char) -> char {<char as Trait>::foo})
     take_foo_mut(Trait::foo, 'c');
-}
 
-//~ TRANS_ITEM drop-glue i8
+    0
+}

@@ -1,14 +1,6 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// min-lldb-version: 310
+// Some versions of the non-rust-enabled LLDB print the wrong generic
+// parameter type names in this test.
+// rust-lldb
 
 // compile-flags:-g
 
@@ -16,7 +8,8 @@
 // gdb-command:run
 
 // gdb-command:print arg
-// gdb-check:$1 = {b = -1, b1 = 0}
+// gdbg-check:$1 = {b = -1, b1 = 0}
+// gdbr-check:$1 = associated_types::Struct<i32> {b: -1, b1: 0}
 // gdb-command:continue
 
 // gdb-command:print inferred
@@ -30,7 +23,8 @@
 // gdb-command:continue
 
 // gdb-command:print arg
-// gdb-check:$5 = {__0 = 4, __1 = 5}
+// gdbg-check:$5 = {__0 = 4, __1 = 5}
+// gdbr-check:$5 = (4, 5)
 // gdb-command:continue
 
 // gdb-command:print a
@@ -49,33 +43,42 @@
 // lldb-command:run
 
 // lldb-command:print arg
-// lldb-check:[...]$0 = Struct<i32> { b: -1, b1: 0 }
+// lldbg-check:[...]$0 = { b = -1, b1 = 0 }
+// lldbr-check:(associated_types::Struct<i32>) arg = { b = -1, b1 = 0 }
 // lldb-command:continue
 
 // lldb-command:print inferred
-// lldb-check:[...]$1 = 1
+// lldbg-check:[...]$1 = 1
+// lldbr-check:(i64) inferred = 1
 // lldb-command:print explicitly
-// lldb-check:[...]$2 = 1
+// lldbg-check:[...]$2 = 1
+// lldbr-check:(i64) explicitly = 1
 // lldb-command:continue
 
 // lldb-command:print arg
-// lldb-check:[...]$3 = 2
+// lldbg-check:[...]$3 = 2
+// lldbr-check:(i64) arg = 2
 // lldb-command:continue
 
 // lldb-command:print arg
-// lldb-check:[...]$4 = (4, 5)
+// lldbg-check:[...]$4 = (4, 5)
+// lldbr-check:((i32, i64)) arg = { = 4 = 5 }
 // lldb-command:continue
 
 // lldb-command:print a
-// lldb-check:[...]$5 = 6
+// lldbg-check:[...]$5 = 6
+// lldbr-check:(i32) a = 6
 // lldb-command:print b
-// lldb-check:[...]$6 = 7
+// lldbg-check:[...]$6 = 7
+// lldbr-check:(i64) b = 7
 // lldb-command:continue
 
 // lldb-command:print a
-// lldb-check:[...]$7 = 8
+// lldbg-check:[...]$7 = 8
+// lldbr-check:(i64) a = 8
 // lldb-command:print b
-// lldb-check:[...]$8 = 9
+// lldbg-check:[...]$8 = 9
+// lldbr-check:(i32) b = 9
 // lldb-command:continue
 
 #![allow(unused_variables)]

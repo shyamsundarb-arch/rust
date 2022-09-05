@@ -1,59 +1,42 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-use rustc::middle::cstore::{CrateStore, ChildItem, DefLike};
-use rustc::middle::privacy::{AccessLevels, AccessLevel};
-use rustc::hir::def::Def;
-use rustc::hir::def_id::{CRATE_DEF_INDEX, DefId};
-use rustc::ty::Visibility;
-use syntax::ast;
-
-use std::cell::RefMut;
-
-use clean::{Attributes, Clean};
+use rustc_data_structures::fx::FxHashSet;
+use rustc_hir::def::{DefKind, Res};
+use rustc_hir::def_id::{CrateNum, DefId};
+use rustc_middle::middle::privacy::{AccessLevel, AccessLevels};
+use rustc_middle::ty::TyCtxt;
 
 // FIXME: this may not be exhaustive, but is sufficient for rustdocs current uses
 
 /// Similar to `librustc_privacy::EmbargoVisitor`, but also takes
-/// specific rustdoc annotations into account (i.e. `doc(hidden)`)
-pub struct LibEmbargoVisitor<'a, 'b: 'a, 'tcx: 'b> {
-    cx: &'a ::core::DocContext<'b, 'tcx>,
-    cstore: &'a CrateStore<'tcx>,
+/// specific rustdoc annotations into account (i.e., `doc(hidden)`)
+pub(crate) struct LibEmbargoVisitor<'a, 'tcx> {
+    tcx: TyCtxt<'tcx>,
     // Accessibility levels for reachable nodes
-    access_levels: RefMut<'a, AccessLevels<DefId>>,
+    access_levels: &'a mut AccessLevels<DefId>,
     // Previous accessibility level, None means unreachable
     prev_level: Option<AccessLevel>,
+    // Keeps track of already visited modules, in case a module re-exports its parent
+    visited_mods: FxHashSet<DefId>,
 }
 
-impl<'a, 'b, 'tcx> LibEmbargoVisitor<'a, 'b, 'tcx> {
-    pub fn new(cx: &'a ::core::DocContext<'b, 'tcx>) -> LibEmbargoVisitor<'a, 'b, 'tcx> {
+impl<'a, 'tcx> LibEmbargoVisitor<'a, 'tcx> {
+    pub(crate) fn new(cx: &'a mut crate::core::DocContext<'tcx>) -> LibEmbargoVisitor<'a, 'tcx> {
         LibEmbargoVisitor {
-            cx: cx,
-            cstore: &*cx.sess().cstore,
-            access_levels: cx.access_levels.borrow_mut(),
+            tcx: cx.tcx,
+            access_levels: &mut cx.cache.access_levels,
             prev_level: Some(AccessLevel::Public),
+            visited_mods: FxHashSet::default(),
         }
     }
 
-    pub fn visit_lib(&mut self, cnum: ast::CrateNum) {
-        let did = DefId { krate: cnum, index: CRATE_DEF_INDEX };
+    pub(crate) fn visit_lib(&mut self, cnum: CrateNum) {
+        let did = cnum.as_def_id();
         self.update(did, Some(AccessLevel::Public));
         self.visit_mod(did);
     }
 
     // Updates node level and returns the updated level
     fn update(&mut self, did: DefId, level: Option<AccessLevel>) -> Option<AccessLevel> {
-        let attrs: Vec<_> = self.cx.tcx().get_attrs(did).iter()
-                                                        .map(|a| a.clean(self.cx))
-                                                        .collect();
-        let is_hidden = attrs.list("doc").has_word("hidden");
+        let is_hidden = self.tcx.is_doc_hidden(did);
 
         let old_level = self.access_levels.map.get(&did).cloned();
         // Accessibility levels can only grow
@@ -65,44 +48,34 @@ impl<'a, 'b, 'tcx> LibEmbargoVisitor<'a, 'b, 'tcx> {
         }
     }
 
-    pub fn visit_mod(&mut self, did: DefId) {
-        for item in self.cstore.item_children(did) {
-            if let DefLike::DlDef(def) = item.def {
-                match def {
-                    Def::Mod(did) |
-                    Def::ForeignMod(did) |
-                    Def::Trait(did) |
-                    Def::Struct(did) |
-                    Def::Enum(did) |
-                    Def::TyAlias(did) |
-                    Def::Fn(did) |
-                    Def::Method(did) |
-                    Def::Static(did, _) |
-                    Def::Const(did) => self.visit_item(did, item),
-                    _ => {}
+    pub(crate) fn visit_mod(&mut self, def_id: DefId) {
+        if !self.visited_mods.insert(def_id) {
+            return;
+        }
+
+        for item in self.tcx.module_children(def_id).iter() {
+            if let Some(def_id) = item.res.opt_def_id() {
+                if self.tcx.def_key(def_id).parent.map_or(false, |d| d == def_id.index)
+                    || item.vis.is_public()
+                {
+                    self.visit_item(item.res);
                 }
             }
         }
     }
 
-    fn visit_item(&mut self, did: DefId, item: ChildItem) {
-        let inherited_item_level = match item.def {
-            DefLike::DlImpl(..) | DefLike::DlField => unreachable!(),
-            DefLike::DlDef(def) => {
-                match def {
-                    Def::ForeignMod(..) => self.prev_level,
-                    _ => if item.vis == Visibility::Public { self.prev_level } else { None }
-                }
-            }
-        };
+    fn visit_item(&mut self, res: Res<!>) {
+        let def_id = res.def_id();
+        let vis = self.tcx.visibility(def_id);
+        let inherited_item_level = if vis.is_public() { self.prev_level } else { None };
 
-        let item_level = self.update(did, inherited_item_level);
+        let item_level = self.update(def_id, inherited_item_level);
 
-        if let DefLike::DlDef(Def::Mod(did)) = item.def {
+        if let Res::Def(DefKind::Mod, _) = res {
             let orig_level = self.prev_level;
 
             self.prev_level = item_level;
-            self.visit_mod(did);
+            self.visit_mod(def_id);
             self.prev_level = orig_level;
         }
     }

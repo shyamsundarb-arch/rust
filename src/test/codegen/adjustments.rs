@@ -1,33 +1,21 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // compile-flags: -C no-prepopulate-passes
 
 #![crate_type = "lib"]
-#![feature(rustc_attrs)]
 
 // Hack to get the correct size for the length part in slices
-// CHECK: @helper([[USIZE:i[0-9]+]])
+// CHECK: @helper([[USIZE:i[0-9]+]] %_1)
 #[no_mangle]
-fn helper(_: usize) {
+pub fn helper(_: usize) {
 }
 
 // CHECK-LABEL: @no_op_slice_adjustment
 #[no_mangle]
-#[rustc_no_mir] // FIXME #27840 MIR has different codegen.
 pub fn no_op_slice_adjustment(x: &[u8]) -> &[u8] {
     // We used to generate an extra alloca and memcpy for the block's trailing expression value, so
     // check that we copy directly to the return value slot
-// CHECK: [[SRC:%[0-9]+]] = bitcast { i8*, [[USIZE]] }* %x to
-// CHECK: [[DST:%[0-9]+]] = bitcast { i8*, [[USIZE]] }* %sret_slot to i8*
-// CHECK: call void @llvm.memcpy.{{.*}}(i8* [[DST]], i8* [[SRC]],
+// CHECK: %0 = insertvalue { {{\[0 x i8\]\*|ptr}}, [[USIZE]] } undef, {{\[0 x i8\]\*|ptr}} %x.0, 0
+// CHECK: %1 = insertvalue { {{\[0 x i8\]\*|ptr}}, [[USIZE]] } %0, [[USIZE]] %x.1, 1
+// CHECK: ret { {{\[0 x i8\]\*|ptr}}, [[USIZE]] } %1
     { x }
 }
 

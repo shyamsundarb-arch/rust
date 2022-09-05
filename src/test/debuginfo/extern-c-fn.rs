@@ -1,13 +1,3 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // min-lldb-version: 310
 
 // compile-flags:-g
@@ -15,16 +5,16 @@
 // === GDB TESTS ===================================================================================
 // gdb-command:run
 
-// gdb-command:print s
-// gdb-check:$1 = [...]"abcd"
+// gdb-command:printf "s = \"%s\"\n", s
+// gdb-check:s = "abcd"
 // gdb-command:print len
-// gdb-check:$2 = 20
+// gdb-check:$1 = 20
 // gdb-command:print local0
-// gdb-check:$3 = 19
+// gdb-check:$2 = 19
 // gdb-command:print local1
-// gdb-check:$4 = true
+// gdb-check:$3 = true
 // gdb-command:print local2
-// gdb-check:$5 = 20.5
+// gdb-check:$4 = 20.5
 
 // gdb-command:continue
 
@@ -32,13 +22,17 @@
 // lldb-command:run
 
 // lldb-command:print len
-// lldb-check:[...]$0 = 20
+// lldbg-check:[...]$0 = 20
+// lldbr-check:(i32) len = 20
 // lldb-command:print local0
-// lldb-check:[...]$1 = 19
+// lldbg-check:[...]$1 = 19
+// lldbr-check:(i32) local0 = 19
 // lldb-command:print local1
-// lldb-check:[...]$2 = true
+// lldbg-check:[...]$2 = true
+// lldbr-check:(bool) local1 = true
 // lldb-command:print local2
-// lldb-check:[...]$3 = 20.5
+// lldbg-check:[...]$3 = 20.5
+// lldbr-check:(f64) local2 = 20.5
 
 // lldb-command:continue
 

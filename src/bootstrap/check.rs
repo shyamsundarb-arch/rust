@@ -1,413 +1,498 @@
-// Copyright 2016 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+//! Implementation of compiling the compiler and standard library, in "check"-based modes.
 
-//! Implementation of the various `check-*` targets of the build system.
-//!
-//! This file implements the various regression test suites that we execute on
-//! our CI.
+use crate::builder::{Builder, Kind, RunConfig, ShouldRun, Step};
+use crate::cache::Interned;
+use crate::compile::{add_to_sysroot, run_cargo, rustc_cargo, rustc_cargo_env, std_cargo};
+use crate::config::TargetSelection;
+use crate::tool::{prepare_tool_cargo, SourceType};
+use crate::INTERNER;
+use crate::{Compiler, Mode, Subcommand};
+use std::path::{Path, PathBuf};
 
-use std::env;
-use std::fs::{self, File};
-use std::io::prelude::*;
-use std::path::{PathBuf, Path};
-use std::process::Command;
-
-use build_helper::output;
-
-use {Build, Compiler, Mode};
-use util::{self, dylib_path, dylib_path_var};
-
-const ADB_TEST_DIR: &'static str = "/data/tmp";
-
-/// Runs the `linkchecker` tool as compiled in `stage` by the `host` compiler.
-///
-/// This tool in `src/tools` will verify the validity of all our links in the
-/// documentation to ensure we don't have a bunch of dead ones.
-pub fn linkcheck(build: &Build, stage: u32, host: &str) {
-    println!("Linkcheck stage{} ({})", stage, host);
-    let compiler = Compiler::new(stage, host);
-    build.run(build.tool_cmd(&compiler, "linkchecker")
-                   .arg(build.out.join(host).join("doc")));
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Std {
+    pub target: TargetSelection,
 }
 
-/// Runs the `cargotest` tool as compiled in `stage` by the `host` compiler.
-///
-/// This tool in `src/tools` will check out a few Rust projects and run `cargo
-/// test` to ensure that we don't regress the test suites there.
-pub fn cargotest(build: &Build, stage: u32, host: &str) {
-    let ref compiler = Compiler::new(stage, host);
-
-    // Configure PATH to find the right rustc. NB. we have to use PATH
-    // and not RUSTC because the Cargo test suite has tests that will
-    // fail if rustc is not spelled `rustc`.
-    let path = build.sysroot(compiler).join("bin");
-    let old_path = ::std::env::var("PATH").expect("");
-    let sep = if cfg!(windows) { ";" } else {":" };
-    let ref newpath = format!("{}{}{}", path.display(), sep, old_path);
-
-    // Note that this is a short, cryptic, and not scoped directory name. This
-    // is currently to minimize the length of path on Windows where we otherwise
-    // quickly run into path name limit constraints.
-    let out_dir = build.out.join("ct");
-    t!(fs::create_dir_all(&out_dir));
-
-    build.run(build.tool_cmd(compiler, "cargotest")
-                   .env("PATH", newpath)
-                   .arg(&build.cargo)
-                   .arg(&out_dir));
-}
-
-/// Runs the `tidy` tool as compiled in `stage` by the `host` compiler.
-///
-/// This tool in `src/tools` checks up on various bits and pieces of style and
-/// otherwise just implements a few lint-like checks that are specific to the
-/// compiler itself.
-pub fn tidy(build: &Build, stage: u32, host: &str) {
-    println!("tidy check stage{} ({})", stage, host);
-    let compiler = Compiler::new(stage, host);
-    build.run(build.tool_cmd(&compiler, "tidy")
-                   .arg(build.src.join("src")));
-}
-
-fn testdir(build: &Build, host: &str) -> PathBuf {
-    build.out.join(host).join("test")
-}
-
-/// Executes the `compiletest` tool to run a suite of tests.
-///
-/// Compiles all tests with `compiler` for `target` with the specified
-/// compiletest `mode` and `suite` arguments. For example `mode` can be
-/// "run-pass" or `suite` can be something like `debuginfo`.
-pub fn compiletest(build: &Build,
-                   compiler: &Compiler,
-                   target: &str,
-                   mode: &str,
-                   suite: &str) {
-    println!("Check compiletest {} ({} -> {})", suite, compiler.host, target);
-    let mut cmd = build.tool_cmd(compiler, "compiletest");
-
-    // compiletest currently has... a lot of arguments, so let's just pass all
-    // of them!
-
-    cmd.arg("--compile-lib-path").arg(build.rustc_libdir(compiler));
-    cmd.arg("--run-lib-path").arg(build.sysroot_libdir(compiler, target));
-    cmd.arg("--rustc-path").arg(build.compiler_path(compiler));
-    cmd.arg("--rustdoc-path").arg(build.rustdoc(compiler));
-    cmd.arg("--src-base").arg(build.src.join("src/test").join(suite));
-    cmd.arg("--build-base").arg(testdir(build, compiler.host).join(suite));
-    cmd.arg("--stage-id").arg(format!("stage{}-{}", compiler.stage, target));
-    cmd.arg("--mode").arg(mode);
-    cmd.arg("--target").arg(target);
-    cmd.arg("--host").arg(compiler.host);
-    cmd.arg("--llvm-filecheck").arg(build.llvm_filecheck(&build.config.build));
-
-    let mut flags = vec!["-Crpath".to_string()];
-    if build.config.rust_optimize_tests {
-        flags.push("-O".to_string());
-    }
-    if build.config.rust_debuginfo_tests {
-        flags.push("-g".to_string());
+/// Returns args for the subcommand itself (not for cargo)
+fn args(builder: &Builder<'_>) -> Vec<String> {
+    fn strings<'a>(arr: &'a [&str]) -> impl Iterator<Item = String> + 'a {
+        arr.iter().copied().map(String::from)
     }
 
-    let mut hostflags = build.rustc_flags(&compiler.host);
-    hostflags.extend(flags.clone());
-    cmd.arg("--host-rustcflags").arg(hostflags.join(" "));
-
-    let mut targetflags = build.rustc_flags(&target);
-    targetflags.extend(flags);
-    targetflags.push(format!("-Lnative={}",
-                             build.test_helpers_out(target).display()));
-    cmd.arg("--target-rustcflags").arg(targetflags.join(" "));
-
-    // FIXME: CFG_PYTHON should probably be detected more robustly elsewhere
-    let python_default = "python";
-    cmd.arg("--docck-python").arg(python_default);
-
-    if build.config.build.ends_with("apple-darwin") {
-        // Force /usr/bin/python on OSX for LLDB tests because we're loading the
-        // LLDB plugin's compiled module which only works with the system python
-        // (namely not Homebrew-installed python)
-        cmd.arg("--lldb-python").arg("/usr/bin/python");
+    if let Subcommand::Clippy {
+        fix,
+        clippy_lint_allow,
+        clippy_lint_deny,
+        clippy_lint_warn,
+        clippy_lint_forbid,
+        ..
+    } = &builder.config.cmd
+    {
+        // disable the most spammy clippy lints
+        let ignored_lints = vec![
+            "many_single_char_names", // there are a lot in stdarch
+            "collapsible_if",
+            "type_complexity",
+            "missing_safety_doc", // almost 3K warnings
+            "too_many_arguments",
+            "needless_lifetimes", // people want to keep the lifetimes
+            "wrong_self_convention",
+        ];
+        let mut args = vec![];
+        if *fix {
+            #[rustfmt::skip]
+            args.extend(strings(&[
+                "--fix", "-Zunstable-options",
+                // FIXME: currently, `--fix` gives an error while checking tests for libtest,
+                // possibly because libtest is not yet built in the sysroot.
+                // As a workaround, avoid checking tests and benches when passed --fix.
+                "--lib", "--bins", "--examples",
+            ]));
+        }
+        args.extend(strings(&["--", "--cap-lints", "warn"]));
+        args.extend(ignored_lints.iter().map(|lint| format!("-Aclippy::{}", lint)));
+        let mut clippy_lint_levels: Vec<String> = Vec::new();
+        clippy_lint_allow.iter().for_each(|v| clippy_lint_levels.push(format!("-A{}", v)));
+        clippy_lint_deny.iter().for_each(|v| clippy_lint_levels.push(format!("-D{}", v)));
+        clippy_lint_warn.iter().for_each(|v| clippy_lint_levels.push(format!("-W{}", v)));
+        clippy_lint_forbid.iter().for_each(|v| clippy_lint_levels.push(format!("-F{}", v)));
+        args.extend(clippy_lint_levels);
+        args
     } else {
-        cmd.arg("--lldb-python").arg(python_default);
+        vec![]
+    }
+}
+
+fn cargo_subcommand(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Check => "check",
+        Kind::Clippy => "clippy",
+        Kind::Fix => "fix",
+        _ => unreachable!(),
+    }
+}
+
+impl Step for Std {
+    type Output = ();
+    const DEFAULT: bool = true;
+
+    fn should_run(run: ShouldRun<'_>) -> ShouldRun<'_> {
+        run.all_krates("test").path("library")
     }
 
-    if let Some(ref vers) = build.gdb_version {
-        cmd.arg("--gdb-version").arg(vers);
-    }
-    if let Some(ref vers) = build.lldb_version {
-        cmd.arg("--lldb-version").arg(vers);
-    }
-    if let Some(ref dir) = build.lldb_python_dir {
-        cmd.arg("--lldb-python-dir").arg(dir);
+    fn make_run(run: RunConfig<'_>) {
+        run.builder.ensure(Std { target: run.target });
     }
 
-    cmd.args(&build.flags.args);
+    fn run(self, builder: &Builder<'_>) {
+        builder.update_submodule(&Path::new("library").join("stdarch"));
 
-    if build.config.verbose || build.flags.verbose {
-        cmd.arg("--verbose");
+        let target = self.target;
+        let compiler = builder.compiler(builder.top_stage, builder.config.build);
+
+        let mut cargo = builder.cargo(
+            compiler,
+            Mode::Std,
+            SourceType::InTree,
+            target,
+            cargo_subcommand(builder.kind),
+        );
+        std_cargo(builder, target, compiler.stage, &mut cargo);
+
+        builder.info(&format!(
+            "Checking stage{} std artifacts ({} -> {})",
+            builder.top_stage, &compiler.host, target
+        ));
+        run_cargo(
+            builder,
+            cargo,
+            args(builder),
+            &libstd_stamp(builder, compiler, target),
+            vec![],
+            true,
+        );
+
+        // We skip populating the sysroot in non-zero stage because that'll lead
+        // to rlib/rmeta conflicts if std gets built during this session.
+        if compiler.stage == 0 {
+            let libdir = builder.sysroot_libdir(compiler, target);
+            let hostdir = builder.sysroot_libdir(compiler, compiler.host);
+            add_to_sysroot(&builder, &libdir, &hostdir, &libstd_stamp(builder, compiler, target));
+        }
+
+        // don't run on std twice with x.py clippy
+        if builder.kind == Kind::Clippy {
+            return;
+        }
+
+        // Then run cargo again, once we've put the rmeta files for the library
+        // crates into the sysroot. This is needed because e.g., core's tests
+        // depend on `libtest` -- Cargo presumes it will exist, but it doesn't
+        // since we initialize with an empty sysroot.
+        //
+        // Currently only the "libtest" tree of crates does this.
+        let mut cargo = builder.cargo(
+            compiler,
+            Mode::Std,
+            SourceType::InTree,
+            target,
+            cargo_subcommand(builder.kind),
+        );
+
+        // If we're not in stage 0, tests and examples will fail to compile
+        // from `core` definitions being loaded from two different `libcore`
+        // .rmeta and .rlib files.
+        if compiler.stage == 0 {
+            cargo.arg("--all-targets");
+        }
+
+        std_cargo(builder, target, compiler.stage, &mut cargo);
+
+        // Explicitly pass -p for all dependencies krates -- this will force cargo
+        // to also check the tests/benches/examples for these crates, rather
+        // than just the leaf crate.
+        for krate in builder.in_tree_crates("test", Some(target)) {
+            cargo.arg("-p").arg(krate.name);
+        }
+
+        builder.info(&format!(
+            "Checking stage{} std test/bench/example targets ({} -> {})",
+            builder.top_stage, &compiler.host, target
+        ));
+        run_cargo(
+            builder,
+            cargo,
+            args(builder),
+            &libstd_test_stamp(builder, compiler, target),
+            vec![],
+            true,
+        );
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Rustc {
+    pub target: TargetSelection,
+}
+
+impl Step for Rustc {
+    type Output = ();
+    const ONLY_HOSTS: bool = true;
+    const DEFAULT: bool = true;
+
+    fn should_run(run: ShouldRun<'_>) -> ShouldRun<'_> {
+        run.all_krates("rustc-main").path("compiler")
     }
 
-    // Only pass correct values for these flags for the `run-make` suite as it
-    // requires that a C++ compiler was configured which isn't always the case.
-    if suite == "run-make" {
-        let llvm_config = build.llvm_config(target);
-        let llvm_components = output(Command::new(&llvm_config).arg("--components"));
-        let llvm_cxxflags = output(Command::new(&llvm_config).arg("--cxxflags"));
-        cmd.arg("--cc").arg(build.cc(target))
-           .arg("--cxx").arg(build.cxx(target))
-           .arg("--cflags").arg(build.cflags(target).join(" "))
-           .arg("--llvm-components").arg(llvm_components.trim())
-           .arg("--llvm-cxxflags").arg(llvm_cxxflags.trim());
-    } else {
-        cmd.arg("--cc").arg("")
-           .arg("--cxx").arg("")
-           .arg("--cflags").arg("")
-           .arg("--llvm-components").arg("")
-           .arg("--llvm-cxxflags").arg("");
+    fn make_run(run: RunConfig<'_>) {
+        run.builder.ensure(Rustc { target: run.target });
     }
 
-    // Running a C compiler on MSVC requires a few env vars to be set, to be
-    // sure to set them here.
-    if target.contains("msvc") {
-        for &(ref k, ref v) in build.cc[target].0.env() {
-            if k != "PATH" {
-                cmd.env(k, v);
+    /// Builds the compiler.
+    ///
+    /// This will build the compiler for a particular stage of the build using
+    /// the `compiler` targeting the `target` architecture. The artifacts
+    /// created will also be linked into the sysroot directory.
+    fn run(self, builder: &Builder<'_>) {
+        let compiler = builder.compiler(builder.top_stage, builder.config.build);
+        let target = self.target;
+
+        if compiler.stage != 0 {
+            // If we're not in stage 0, then we won't have a std from the beta
+            // compiler around. That means we need to make sure there's one in
+            // the sysroot for the compiler to find. Otherwise, we're going to
+            // fail when building crates that need to generate code (e.g., build
+            // scripts and their dependencies).
+            builder.ensure(crate::compile::Std::new(compiler, compiler.host));
+            builder.ensure(crate::compile::Std::new(compiler, target));
+        } else {
+            builder.ensure(Std { target });
+        }
+
+        let mut cargo = builder.cargo(
+            compiler,
+            Mode::Rustc,
+            SourceType::InTree,
+            target,
+            cargo_subcommand(builder.kind),
+        );
+        rustc_cargo(builder, &mut cargo, target);
+
+        // For ./x.py clippy, don't run with --all-targets because
+        // linting tests and benchmarks can produce very noisy results
+        if builder.kind != Kind::Clippy {
+            cargo.arg("--all-targets");
+        }
+
+        // Explicitly pass -p for all compiler krates -- this will force cargo
+        // to also check the tests/benches/examples for these crates, rather
+        // than just the leaf crate.
+        for krate in builder.in_tree_crates("rustc-main", Some(target)) {
+            cargo.arg("-p").arg(krate.name);
+        }
+
+        builder.info(&format!(
+            "Checking stage{} compiler artifacts ({} -> {})",
+            builder.top_stage, &compiler.host, target
+        ));
+        run_cargo(
+            builder,
+            cargo,
+            args(builder),
+            &librustc_stamp(builder, compiler, target),
+            vec![],
+            true,
+        );
+
+        let libdir = builder.sysroot_libdir(compiler, target);
+        let hostdir = builder.sysroot_libdir(compiler, compiler.host);
+        add_to_sysroot(&builder, &libdir, &hostdir, &librustc_stamp(builder, compiler, target));
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct CodegenBackend {
+    pub target: TargetSelection,
+    pub backend: Interned<String>,
+}
+
+impl Step for CodegenBackend {
+    type Output = ();
+    const ONLY_HOSTS: bool = true;
+    const DEFAULT: bool = true;
+
+    fn should_run(run: ShouldRun<'_>) -> ShouldRun<'_> {
+        run.paths(&["compiler/rustc_codegen_cranelift", "compiler/rustc_codegen_gcc"])
+    }
+
+    fn make_run(run: RunConfig<'_>) {
+        for &backend in &[INTERNER.intern_str("cranelift"), INTERNER.intern_str("gcc")] {
+            run.builder.ensure(CodegenBackend { target: run.target, backend });
+        }
+    }
+
+    fn run(self, builder: &Builder<'_>) {
+        let compiler = builder.compiler(builder.top_stage, builder.config.build);
+        let target = self.target;
+        let backend = self.backend;
+
+        builder.ensure(Rustc { target });
+
+        let mut cargo = builder.cargo(
+            compiler,
+            Mode::Codegen,
+            SourceType::InTree,
+            target,
+            cargo_subcommand(builder.kind),
+        );
+        cargo
+            .arg("--manifest-path")
+            .arg(builder.src.join(format!("compiler/rustc_codegen_{}/Cargo.toml", backend)));
+        rustc_cargo_env(builder, &mut cargo, target);
+
+        builder.info(&format!(
+            "Checking stage{} {} artifacts ({} -> {})",
+            builder.top_stage, backend, &compiler.host.triple, target.triple
+        ));
+
+        run_cargo(
+            builder,
+            cargo,
+            args(builder),
+            &codegen_backend_stamp(builder, compiler, target, backend),
+            vec![],
+            true,
+        );
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct RustAnalyzer {
+    pub target: TargetSelection,
+}
+
+impl Step for RustAnalyzer {
+    type Output = ();
+    const ONLY_HOSTS: bool = true;
+    const DEFAULT: bool = true;
+
+    fn should_run(run: ShouldRun<'_>) -> ShouldRun<'_> {
+        run.path("src/tools/rust-analyzer")
+    }
+
+    fn make_run(run: RunConfig<'_>) {
+        run.builder.ensure(RustAnalyzer { target: run.target });
+    }
+
+    fn run(self, builder: &Builder<'_>) {
+        let compiler = builder.compiler(builder.top_stage, builder.config.build);
+        let target = self.target;
+
+        builder.ensure(Std { target });
+
+        let mut cargo = prepare_tool_cargo(
+            builder,
+            compiler,
+            Mode::ToolStd,
+            target,
+            cargo_subcommand(builder.kind),
+            "src/tools/rust-analyzer",
+            SourceType::InTree,
+            &["rust-analyzer/in-rust-tree".to_owned()],
+        );
+
+        cargo.rustflag(
+            "-Zallow-features=proc_macro_internals,proc_macro_diagnostic,proc_macro_span",
+        );
+
+        // For ./x.py clippy, don't check those targets because
+        // linting tests and benchmarks can produce very noisy results
+        if builder.kind != Kind::Clippy {
+            // can't use `--all-targets` because `--examples` doesn't work well
+            cargo.arg("--bins");
+            cargo.arg("--tests");
+            cargo.arg("--benches");
+        }
+
+        builder.info(&format!(
+            "Checking stage{} {} artifacts ({} -> {})",
+            compiler.stage, "rust-analyzer", &compiler.host.triple, target.triple
+        ));
+        run_cargo(builder, cargo, args(builder), &stamp(builder, compiler, target), vec![], true);
+
+        /// Cargo's output path in a given stage, compiled by a particular
+        /// compiler for the specified target.
+        fn stamp(builder: &Builder<'_>, compiler: Compiler, target: TargetSelection) -> PathBuf {
+            builder.cargo_out(compiler, Mode::ToolStd, target).join(".rust-analyzer-check.stamp")
+        }
+    }
+}
+
+macro_rules! tool_check_step {
+    ($name:ident, $path:literal, $($alias:literal, )* $source_type:path $(, $default:literal )?) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+        pub struct $name {
+            pub target: TargetSelection,
+        }
+
+        impl Step for $name {
+            type Output = ();
+            const ONLY_HOSTS: bool = true;
+            // don't ever check out-of-tree tools by default, they'll fail when toolstate is broken
+            const DEFAULT: bool = matches!($source_type, SourceType::InTree) $( && $default )?;
+
+            fn should_run(run: ShouldRun<'_>) -> ShouldRun<'_> {
+                run.paths(&[ $path, $($alias),* ])
+            }
+
+            fn make_run(run: RunConfig<'_>) {
+                run.builder.ensure($name { target: run.target });
+            }
+
+            fn run(self, builder: &Builder<'_>) {
+                let compiler = builder.compiler(builder.top_stage, builder.config.build);
+                let target = self.target;
+
+                builder.ensure(Rustc { target });
+
+                let mut cargo = prepare_tool_cargo(
+                    builder,
+                    compiler,
+                    Mode::ToolRustc,
+                    target,
+                    cargo_subcommand(builder.kind),
+                    $path,
+                    $source_type,
+                    &[],
+                );
+
+                // For ./x.py clippy, don't run with --all-targets because
+                // linting tests and benchmarks can produce very noisy results
+                if builder.kind != Kind::Clippy {
+                    cargo.arg("--all-targets");
+                }
+
+                // Enable internal lints for clippy and rustdoc
+                // NOTE: this doesn't enable lints for any other tools unless they explicitly add `#![warn(rustc::internal)]`
+                // See https://github.com/rust-lang/rust/pull/80573#issuecomment-754010776
+                cargo.rustflag("-Zunstable-options");
+
+                builder.info(&format!(
+                    "Checking stage{} {} artifacts ({} -> {})",
+                    builder.top_stage,
+                    stringify!($name).to_lowercase(),
+                    &compiler.host.triple,
+                    target.triple
+                ));
+                run_cargo(
+                    builder,
+                    cargo,
+                    args(builder),
+                    &stamp(builder, compiler, target),
+                    vec![],
+                    true,
+                );
+
+                /// Cargo's output path in a given stage, compiled by a particular
+                /// compiler for the specified target.
+                fn stamp(
+                    builder: &Builder<'_>,
+                    compiler: Compiler,
+                    target: TargetSelection,
+                ) -> PathBuf {
+                    builder
+                        .cargo_out(compiler, Mode::ToolRustc, target)
+                        .join(format!(".{}-check.stamp", stringify!($name).to_lowercase()))
+                }
             }
         }
-    }
-    build.add_bootstrap_key(compiler, &mut cmd);
-
-    cmd.arg("--adb-path").arg("adb");
-    cmd.arg("--adb-test-dir").arg(ADB_TEST_DIR);
-    if target.contains("android") {
-        // Assume that cc for this target comes from the android sysroot
-        cmd.arg("--android-cross-path")
-           .arg(build.cc(target).parent().unwrap().parent().unwrap());
-    } else {
-        cmd.arg("--android-cross-path").arg("");
-    }
-
-    build.run(&mut cmd);
-}
-
-/// Run `rustdoc --test` for all documentation in `src/doc`.
-///
-/// This will run all tests in our markdown documentation (e.g. the book)
-/// located in `src/doc`. The `rustdoc` that's run is the one that sits next to
-/// `compiler`.
-pub fn docs(build: &Build, compiler: &Compiler) {
-    // Do a breadth-first traversal of the `src/doc` directory and just run
-    // tests for all files that end in `*.md`
-    let mut stack = vec![build.src.join("src/doc")];
-
-    while let Some(p) = stack.pop() {
-        if p.is_dir() {
-            stack.extend(t!(p.read_dir()).map(|p| t!(p).path()));
-            continue
-        }
-
-        if p.extension().and_then(|s| s.to_str()) != Some("md") {
-            continue
-        }
-
-        println!("doc tests for: {}", p.display());
-        markdown_test(build, compiler, &p);
-    }
-}
-
-/// Run the error index generator tool to execute the tests located in the error
-/// index.
-///
-/// The `error_index_generator` tool lives in `src/tools` and is used to
-/// generate a markdown file from the error indexes of the code base which is
-/// then passed to `rustdoc --test`.
-pub fn error_index(build: &Build, compiler: &Compiler) {
-    println!("Testing error-index stage{}", compiler.stage);
-
-    let output = testdir(build, compiler.host).join("error-index.md");
-    build.run(build.tool_cmd(compiler, "error_index_generator")
-                   .arg("markdown")
-                   .arg(&output)
-                   .env("CFG_BUILD", &build.config.build));
-
-    markdown_test(build, compiler, &output);
-}
-
-fn markdown_test(build: &Build, compiler: &Compiler, markdown: &Path) {
-    let mut cmd = Command::new(build.rustdoc(compiler));
-    build.add_rustc_lib_path(compiler, &mut cmd);
-    cmd.arg("--test");
-    cmd.arg(markdown);
-    cmd.arg("--test-args").arg(build.flags.args.join(" "));
-    build.run(&mut cmd);
-}
-
-/// Run all unit tests plus documentation tests for an entire crate DAG defined
-/// by a `Cargo.toml`
-///
-/// This is what runs tests for crates like the standard library, compiler, etc.
-/// It essentially is the driver for running `cargo test`.
-///
-/// Currently this runs all tests for a DAG by passing a bunch of `-p foo`
-/// arguments, and those arguments are discovered from `Cargo.lock`.
-pub fn krate(build: &Build,
-             compiler: &Compiler,
-             target: &str,
-             mode: Mode) {
-    let (name, path, features) = match mode {
-        Mode::Libstd => ("libstd", "src/rustc/std_shim", build.std_features()),
-        Mode::Libtest => ("libtest", "src/rustc/test_shim", String::new()),
-        Mode::Librustc => ("librustc", "src/rustc", build.rustc_features()),
-        _ => panic!("can only test libraries"),
     };
-    println!("Testing {} stage{} ({} -> {})", name, compiler.stage,
-             compiler.host, target);
-
-    // Build up the base `cargo test` command.
-    let mut cargo = build.cargo(compiler, mode, target, "test");
-    cargo.arg("--manifest-path")
-         .arg(build.src.join(path).join("Cargo.toml"))
-         .arg("--features").arg(features);
-
-    // Generate a list of `-p` arguments to pass to the `cargo test` invocation
-    // by crawling the corresponding Cargo.lock file.
-    let lockfile = build.src.join(path).join("Cargo.lock");
-    let mut contents = String::new();
-    t!(t!(File::open(&lockfile)).read_to_string(&mut contents));
-    let mut lines = contents.lines();
-    while let Some(line) = lines.next() {
-        let prefix = "name = \"";
-        if !line.starts_with(prefix) {
-            continue
-        }
-        lines.next(); // skip `version = ...`
-
-        // skip crates.io or otherwise non-path crates
-        if let Some(line) = lines.next() {
-            if line.starts_with("source") {
-                continue
-            }
-        }
-
-        let crate_name = &line[prefix.len()..line.len() - 1];
-
-        // Right now jemalloc is our only target-specific crate in the sense
-        // that it's not present on all platforms. Custom skip it here for now,
-        // but if we add more this probably wants to get more generalized.
-        if crate_name.contains("jemalloc") {
-            continue
-        }
-
-        cargo.arg("-p").arg(crate_name);
-    }
-
-    // The tests are going to run with the *target* libraries, so we need to
-    // ensure that those libraries show up in the LD_LIBRARY_PATH equivalent.
-    //
-    // Note that to run the compiler we need to run with the *host* libraries,
-    // but our wrapper scripts arrange for that to be the case anyway.
-    let mut dylib_path = dylib_path();
-    dylib_path.insert(0, build.sysroot_libdir(compiler, target));
-    cargo.env(dylib_path_var(), env::join_paths(&dylib_path).unwrap());
-
-    if target.contains("android") {
-        build.run(cargo.arg("--no-run"));
-        krate_android(build, compiler, target, mode);
-    } else {
-        cargo.args(&build.flags.args);
-        build.run(&mut cargo);
-    }
 }
 
-fn krate_android(build: &Build,
-                 compiler: &Compiler,
-                 target: &str,
-                 mode: Mode) {
-    let mut tests = Vec::new();
-    let out_dir = build.cargo_out(compiler, mode, target);
-    find_tests(&out_dir, target, &mut tests);
-    find_tests(&out_dir.join("deps"), target, &mut tests);
+tool_check_step!(Rustdoc, "src/tools/rustdoc", "src/librustdoc", SourceType::InTree);
+// Clippy and Rustfmt are hybrids. They are external tools, but use a git subtree instead
+// of a submodule. Since the SourceType only drives the deny-warnings
+// behavior, treat it as in-tree so that any new warnings in clippy will be
+// rejected.
+tool_check_step!(Clippy, "src/tools/clippy", SourceType::InTree);
+tool_check_step!(Miri, "src/tools/miri", SourceType::Submodule);
+tool_check_step!(Rls, "src/tools/rls", SourceType::InTree);
+tool_check_step!(Rustfmt, "src/tools/rustfmt", SourceType::InTree);
 
-    for test in tests {
-        build.run(Command::new("adb").arg("push").arg(&test).arg(ADB_TEST_DIR));
+tool_check_step!(Bootstrap, "src/bootstrap", SourceType::InTree, false);
 
-        let test_file_name = test.file_name().unwrap().to_string_lossy();
-        let log = format!("{}/check-stage{}-T-{}-H-{}-{}.log",
-                          ADB_TEST_DIR,
-                          compiler.stage,
-                          target,
-                          compiler.host,
-                          test_file_name);
-        let program = format!("(cd {dir}; \
-                                LD_LIBRARY_PATH=./{target} ./{test} \
-                                    --logfile {log} \
-                                    {args})",
-                              dir = ADB_TEST_DIR,
-                              target = target,
-                              test = test_file_name,
-                              log = log,
-                              args = build.flags.args.join(" "));
-
-        let output = output(Command::new("adb").arg("shell").arg(&program));
-        println!("{}", output);
-        build.run(Command::new("adb")
-                          .arg("pull")
-                          .arg(&log)
-                          .arg(build.out.join("tmp")));
-        build.run(Command::new("adb").arg("shell").arg("rm").arg(&log));
-        if !output.contains("result: ok") {
-            panic!("some tests failed");
-        }
-    }
+/// Cargo's output path for the standard library in a given stage, compiled
+/// by a particular compiler for the specified target.
+fn libstd_stamp(builder: &Builder<'_>, compiler: Compiler, target: TargetSelection) -> PathBuf {
+    builder.cargo_out(compiler, Mode::Std, target).join(".libstd-check.stamp")
 }
 
-fn find_tests(dir: &Path,
-              target: &str,
-              dst: &mut Vec<PathBuf>) {
-    for e in t!(dir.read_dir()).map(|e| t!(e)) {
-        let file_type = t!(e.file_type());
-        if !file_type.is_file() {
-            continue
-        }
-        let filename = e.file_name().into_string().unwrap();
-        if (target.contains("windows") && filename.ends_with(".exe")) ||
-           (!target.contains("windows") && !filename.contains(".")) {
-            dst.push(e.path());
-        }
-    }
+/// Cargo's output path for the standard library in a given stage, compiled
+/// by a particular compiler for the specified target.
+fn libstd_test_stamp(
+    builder: &Builder<'_>,
+    compiler: Compiler,
+    target: TargetSelection,
+) -> PathBuf {
+    builder.cargo_out(compiler, Mode::Std, target).join(".libstd-check-test.stamp")
 }
 
-pub fn android_copy_libs(build: &Build,
-                         compiler: &Compiler,
-                         target: &str) {
-    println!("Android copy libs to emulator ({})", target);
-    build.run(Command::new("adb").arg("remount"));
-    build.run(Command::new("adb").args(&["shell", "rm", "-r", ADB_TEST_DIR]));
-    build.run(Command::new("adb").args(&["shell", "mkdir", ADB_TEST_DIR]));
-    build.run(Command::new("adb")
-                      .arg("push")
-                      .arg(build.src.join("src/etc/adb_run_wrapper.sh"))
-                      .arg(ADB_TEST_DIR));
+/// Cargo's output path for librustc in a given stage, compiled by a particular
+/// compiler for the specified target.
+fn librustc_stamp(builder: &Builder<'_>, compiler: Compiler, target: TargetSelection) -> PathBuf {
+    builder.cargo_out(compiler, Mode::Rustc, target).join(".librustc-check.stamp")
+}
 
-    let target_dir = format!("{}/{}", ADB_TEST_DIR, target);
-    build.run(Command::new("adb").args(&["shell", "mkdir", &target_dir[..]]));
-
-    for f in t!(build.sysroot_libdir(compiler, target).read_dir()) {
-        let f = t!(f);
-        let name = f.file_name().into_string().unwrap();
-        if util::is_dylib(&name) {
-            build.run(Command::new("adb")
-                              .arg("push")
-                              .arg(f.path())
-                              .arg(&target_dir));
-        }
-    }
+/// Cargo's output path for librustc_codegen_llvm in a given stage, compiled by a particular
+/// compiler for the specified target and backend.
+fn codegen_backend_stamp(
+    builder: &Builder<'_>,
+    compiler: Compiler,
+    target: TargetSelection,
+    backend: Interned<String>,
+) -> PathBuf {
+    builder
+        .cargo_out(compiler, Mode::Codegen, target)
+        .join(format!(".librustc_codegen_{}-check.stamp", backend))
 }

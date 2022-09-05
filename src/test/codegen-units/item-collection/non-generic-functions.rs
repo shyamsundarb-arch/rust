@@ -1,36 +1,26 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager
 
 #![deny(dead_code)]
+#![feature(start)]
 
-//~ TRANS_ITEM fn non_generic_functions::foo[0]
+//~ MONO_ITEM fn foo
 fn foo() {
     {
-        //~ TRANS_ITEM fn non_generic_functions::foo[0]::foo[0]
+        //~ MONO_ITEM fn foo::foo
         fn foo() {}
         foo();
     }
 
     {
-        //~ TRANS_ITEM fn non_generic_functions::foo[0]::foo[1]
+        //~ MONO_ITEM fn foo::foo
         fn foo() {}
         foo();
     }
 }
 
-//~ TRANS_ITEM fn non_generic_functions::bar[0]
+//~ MONO_ITEM fn bar
 fn bar() {
-    //~ TRANS_ITEM fn non_generic_functions::bar[0]::baz[0]
+    //~ MONO_ITEM fn bar::baz
     fn baz() {}
     baz();
 }
@@ -38,44 +28,45 @@ fn bar() {
 struct Struct { _x: i32 }
 
 impl Struct {
-    //~ TRANS_ITEM fn non_generic_functions::{{impl}}[0]::foo[0]
+    //~ MONO_ITEM fn Struct::foo
     fn foo() {
         {
-            //~ TRANS_ITEM fn non_generic_functions::{{impl}}[0]::foo[0]::foo[0]
+            //~ MONO_ITEM fn Struct::foo::foo
             fn foo() {}
             foo();
         }
 
         {
-            //~ TRANS_ITEM fn non_generic_functions::{{impl}}[0]::foo[0]::foo[1]
+            //~ MONO_ITEM fn Struct::foo::foo
             fn foo() {}
             foo();
         }
     }
 
-    //~ TRANS_ITEM fn non_generic_functions::{{impl}}[0]::bar[0]
+    //~ MONO_ITEM fn Struct::bar
     fn bar(&self) {
         {
-            //~ TRANS_ITEM fn non_generic_functions::{{impl}}[0]::bar[0]::foo[0]
+            //~ MONO_ITEM fn Struct::bar::foo
             fn foo() {}
             foo();
         }
 
         {
-            //~ TRANS_ITEM fn non_generic_functions::{{impl}}[0]::bar[0]::foo[1]
+            //~ MONO_ITEM fn Struct::bar::foo
             fn foo() {}
             foo();
         }
     }
 }
 
-//~ TRANS_ITEM fn non_generic_functions::main[0]
-fn main() {
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
     foo();
     bar();
     Struct::foo();
     let x = Struct { _x: 0 };
     x.bar();
-}
 
-//~ TRANS_ITEM drop-glue i8
+    0
+}

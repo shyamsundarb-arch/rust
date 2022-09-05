@@ -1,13 +1,3 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // min-lldb-version: 310
 
 // compile-flags:-g
@@ -21,9 +11,11 @@
 // gdb-command:print constant
 // gdb-check:$2 = 2
 // gdb-command:print a_struct
-// gdb-check:$3 = {a = -3, b = 4.5, c = 5}
+// gdbg-check:$3 = {a = -3, b = 4.5, c = 5}
+// gdbr-check:$3 = var_captured_in_nested_closure::Struct {a: -3, b: 4.5, c: 5}
 // gdb-command:print *struct_ref
-// gdb-check:$4 = {a = -3, b = 4.5, c = 5}
+// gdbg-check:$4 = {a = -3, b = 4.5, c = 5}
+// gdbr-check:$4 = var_captured_in_nested_closure::Struct {a: -3, b: 4.5, c: 5}
 // gdb-command:print *owned
 // gdb-check:$5 = 6
 // gdb-command:print closure_local
@@ -35,9 +27,11 @@
 // gdb-command:print constant
 // gdb-check:$8 = 2
 // gdb-command:print a_struct
-// gdb-check:$9 = {a = -3, b = 4.5, c = 5}
+// gdbg-check:$9 = {a = -3, b = 4.5, c = 5}
+// gdbr-check:$9 = var_captured_in_nested_closure::Struct {a: -3, b: 4.5, c: 5}
 // gdb-command:print *struct_ref
-// gdb-check:$10 = {a = -3, b = 4.5, c = 5}
+// gdbg-check:$10 = {a = -3, b = 4.5, c = 5}
+// gdbr-check:$10 = var_captured_in_nested_closure::Struct {a: -3, b: 4.5, c: 5}
 // gdb-command:print *owned
 // gdb-check:$11 = 6
 // gdb-command:print closure_local
@@ -50,35 +44,95 @@
 // lldb-command:run
 
 // lldb-command:print variable
-// lldb-check:[...]$0 = 1
+// lldbg-check:[...]$0 = 1
+// lldbr-check:(isize) variable = 1
 // lldb-command:print constant
-// lldb-check:[...]$1 = 2
+// lldbg-check:[...]$1 = 2
+// lldbr-check:(isize) constant = 2
 // lldb-command:print a_struct
-// lldb-check:[...]$2 = Struct { a: -3, b: 4.5, c: 5 }
+// lldbg-check:[...]$2 = { a = -3 b = 4.5 c = 5 }
+// lldbr-check:(var_captured_in_nested_closure::Struct) a_struct = { a = -3 b = 4.5 c = 5 }
 // lldb-command:print *struct_ref
-// lldb-check:[...]$3 = Struct { a: -3, b: 4.5, c: 5 }
+// lldbg-check:[...]$3 = { a = -3 b = 4.5 c = 5 }
+// lldbr-check:(var_captured_in_nested_closure::Struct) *struct_ref = { a = -3 b = 4.5 c = 5 }
 // lldb-command:print *owned
-// lldb-check:[...]$4 = 6
+// lldbg-check:[...]$4 = 6
+// lldbr-check:(isize) *owned = 6
 // lldb-command:print closure_local
-// lldb-check:[...]$5 = 8
+// lldbg-check:[...]$5 = 8
+// lldbr-check:(isize) closure_local = 8
 // lldb-command:continue
 
 // lldb-command:print variable
-// lldb-check:[...]$6 = 1
+// lldbg-check:[...]$6 = 1
+// lldbr-check:(isize) variable = 1
 // lldb-command:print constant
-// lldb-check:[...]$7 = 2
+// lldbg-check:[...]$7 = 2
+// lldbr-check:(isize) constant = 2
 // lldb-command:print a_struct
-// lldb-check:[...]$8 = Struct { a: -3, b: 4.5, c: 5 }
+// lldbg-check:[...]$8 = { a = -3 b = 4.5 c = 5 }
+// lldbr-check:(var_captured_in_nested_closure::Struct) a_struct = { a = -3 b = 4.5 c = 5 }
 // lldb-command:print *struct_ref
-// lldb-check:[...]$9 = Struct { a: -3, b: 4.5, c: 5 }
+// lldbg-check:[...]$9 = { a = -3 b = 4.5 c = 5 }
+// lldbr-check:(var_captured_in_nested_closure::Struct) *struct_ref = { a = -3 b = 4.5 c = 5 }
 // lldb-command:print *owned
-// lldb-check:[...]$10 = 6
+// lldbg-check:[...]$10 = 6
+// lldbr-check:(isize) *owned = 6
 // lldb-command:print closure_local
-// lldb-check:[...]$11 = 8
+// lldbg-check:[...]$11 = 8
+// lldbr-check:(isize) closure_local = 8
 // lldb-command:continue
 
+
+// === CDB TESTS ===================================================================================
+
+// cdb-command: g
+
+// cdb-command: dx variable
+// cdb-check:variable         : 1 [Type: [...]]
+// cdb-command: dx constant
+// cdb-check:constant         : 2 [Type: [...]]
+// cdb-command: dx a_struct
+// cdb-check:a_struct         [Type: var_captured_in_nested_closure::Struct]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx struct_ref
+// cdb-check:struct_ref       : 0x[...] [Type: var_captured_in_nested_closure::Struct *]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx owned
+// cdb-check:owned            : 0x[...] : 6 [Type: [...] *]
+// cdb-check:    6 [Type: [...]]
+// cdb-command: dx closure_local
+// cdb-check:closure_local    : 8 [Type: [...]]
+// cdb-command: dx nested_closure
+// cdb-check:nested_closure   [Type: var_captured_in_nested_closure::main::closure$0::closure_env$0]
+
+// cdb-command: g
+
+// cdb-command: dx variable
+// cdb-check:variable         : 1 [Type: [...]]
+// cdb-command: dx constant
+// cdb-check:constant         : 2 [Type: [...]]
+// cdb-command: dx a_struct
+// cdb-check:a_struct         [Type: var_captured_in_nested_closure::Struct]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx struct_ref
+// cdb-check:struct_ref       : 0x[...] [Type: var_captured_in_nested_closure::Struct *]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx owned
+// cdb-check:owned            : 0x[...] : 6 [Type: [...] *]
+// cdb-check:    6 [Type: [...]]
+// cdb-command: dx closure_local
+// cdb-check:closure_local    : 8 [Type: [...]]
+
 #![allow(unused_variables)]
-#![feature(box_syntax)]
 #![feature(omit_gdb_pretty_printer_section)]
 #![omit_gdb_pretty_printer_section]
 
@@ -99,7 +153,7 @@ fn main() {
     };
 
     let struct_ref = &a_struct;
-    let owned: Box<_> = box 6;
+    let owned: Box<_> = Box::new(6);
 
     let mut closure = || {
         let closure_local = 8;

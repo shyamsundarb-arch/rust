@@ -1,55 +1,46 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager
+// compile-flags:-Zinline-in-all-cgus
 
 #![deny(dead_code)]
+#![feature(start)]
 
-//~ TRANS_ITEM drop-glue transitive_drop_glue::Root[0]
-struct Root(Intermediate);
-//~ TRANS_ITEM drop-glue transitive_drop_glue::Intermediate[0]
-struct Intermediate(Leaf);
-//~ TRANS_ITEM drop-glue transitive_drop_glue::Leaf[0]
-//~ TRANS_ITEM drop-glue-contents transitive_drop_glue::Leaf[0]
+//~ MONO_ITEM fn std::ptr::drop_in_place::<Root> - shim(Some(Root)) @@ transitive_drop_glue-cgu.0[Internal]
+struct Root(#[allow(unused_tuple_struct_fields)] Intermediate);
+//~ MONO_ITEM fn std::ptr::drop_in_place::<Intermediate> - shim(Some(Intermediate)) @@ transitive_drop_glue-cgu.0[Internal]
+struct Intermediate(#[allow(unused_tuple_struct_fields)] Leaf);
+//~ MONO_ITEM fn std::ptr::drop_in_place::<Leaf> - shim(Some(Leaf)) @@ transitive_drop_glue-cgu.0[Internal]
 struct Leaf;
 
 impl Drop for Leaf {
-    //~ TRANS_ITEM fn transitive_drop_glue::{{impl}}[0]::drop[0]
+    //~ MONO_ITEM fn <Leaf as std::ops::Drop>::drop
     fn drop(&mut self) {}
 }
 
-struct RootGen<T>(IntermediateGen<T>);
-struct IntermediateGen<T>(LeafGen<T>);
-struct LeafGen<T>(T);
+struct RootGen<T>(#[allow(unused_tuple_struct_fields)] IntermediateGen<T>);
+struct IntermediateGen<T>(#[allow(unused_tuple_struct_fields)] LeafGen<T>);
+struct LeafGen<T>(#[allow(unused_tuple_struct_fields)] T);
 
 impl<T> Drop for LeafGen<T> {
     fn drop(&mut self) {}
 }
 
-//~ TRANS_ITEM fn transitive_drop_glue::main[0]
-fn main() {
-
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
     let _ = Root(Intermediate(Leaf));
 
-    //~ TRANS_ITEM drop-glue transitive_drop_glue::RootGen[0]<u32>
-    //~ TRANS_ITEM drop-glue transitive_drop_glue::IntermediateGen[0]<u32>
-    //~ TRANS_ITEM drop-glue transitive_drop_glue::LeafGen[0]<u32>
-    //~ TRANS_ITEM drop-glue-contents transitive_drop_glue::LeafGen[0]<u32>
-    //~ TRANS_ITEM fn transitive_drop_glue::{{impl}}[1]::drop[0]<u32>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<RootGen<u32>> - shim(Some(RootGen<u32>)) @@ transitive_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<IntermediateGen<u32>> - shim(Some(IntermediateGen<u32>)) @@ transitive_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<LeafGen<u32>> - shim(Some(LeafGen<u32>)) @@ transitive_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn <LeafGen<u32> as std::ops::Drop>::drop
     let _ = RootGen(IntermediateGen(LeafGen(0u32)));
 
-    //~ TRANS_ITEM drop-glue transitive_drop_glue::RootGen[0]<i16>
-    //~ TRANS_ITEM drop-glue transitive_drop_glue::IntermediateGen[0]<i16>
-    //~ TRANS_ITEM drop-glue transitive_drop_glue::LeafGen[0]<i16>
-    //~ TRANS_ITEM drop-glue-contents transitive_drop_glue::LeafGen[0]<i16>
-    //~ TRANS_ITEM fn transitive_drop_glue::{{impl}}[1]::drop[0]<i16>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<RootGen<i16>> - shim(Some(RootGen<i16>)) @@ transitive_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<IntermediateGen<i16>> - shim(Some(IntermediateGen<i16>)) @@ transitive_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<LeafGen<i16>> - shim(Some(LeafGen<i16>)) @@ transitive_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn <LeafGen<i16> as std::ops::Drop>::drop
     let _ = RootGen(IntermediateGen(LeafGen(0i16)));
+
+    0
 }

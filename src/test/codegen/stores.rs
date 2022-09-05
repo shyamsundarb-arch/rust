@@ -1,17 +1,7 @@
-// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // compile-flags: -C no-prepopulate-passes
+//
 
 #![crate_type = "lib"]
-#![feature(rustc_attrs)]
 
 pub struct Bytes {
   a: u8,
@@ -24,14 +14,11 @@ pub struct Bytes {
 // The array is stored as i32, but its alignment is lower, go with 1 byte to avoid target
 // dependent alignment
 #[no_mangle]
-#[rustc_no_mir] // FIXME #27840 MIR has different codegen.
 pub fn small_array_alignment(x: &mut [i8; 4], y: [i8; 4]) {
-// CHECK: %y = alloca [4 x i8]
 // CHECK: [[TMP:%.+]] = alloca i32
-// CHECK: store i32 %1, i32* [[TMP]]
-// CHECK: [[Y8:%[0-9]+]] = bitcast [4 x i8]* %y to i8*
-// CHECK: [[TMP8:%[0-9]+]] = bitcast i32* [[TMP]] to i8*
-// CHECK: call void @llvm.memcpy.{{.*}}(i8* [[Y8]], i8* [[TMP8]], i{{[0-9]+}} 4, i32 1, i1 false)
+// CHECK: %y = alloca [4 x i8]
+// CHECK: store i32 %0, {{i32\*|ptr}} [[TMP]]
+// CHECK: call void @llvm.memcpy.{{.*}}({{i8\*|ptr}} align 1 {{.+}}, {{i8\*|ptr}} align 4 {{.+}}, i{{[0-9]+}} 4, i1 false)
     *x = y;
 }
 
@@ -39,13 +26,10 @@ pub fn small_array_alignment(x: &mut [i8; 4], y: [i8; 4]) {
 // The struct is stored as i32, but its alignment is lower, go with 1 byte to avoid target
 // dependent alignment
 #[no_mangle]
-#[rustc_no_mir] // FIXME #27840 MIR has different codegen.
 pub fn small_struct_alignment(x: &mut Bytes, y: Bytes) {
-// CHECK: %y = alloca %Bytes
 // CHECK: [[TMP:%.+]] = alloca i32
-// CHECK: store i32 %1, i32* [[TMP]]
-// CHECK: [[Y8:%[0-9]+]] = bitcast %Bytes* %y to i8*
-// CHECK: [[TMP8:%[0-9]+]] = bitcast i32* [[TMP]] to i8*
-// CHECK: call void @llvm.memcpy.{{.*}}(i8* [[Y8]], i8* [[TMP8]], i{{[0-9]+}} 4, i32 1, i1 false)
+// CHECK: %y = alloca %Bytes
+// CHECK: store i32 %0, {{i32\*|ptr}} [[TMP]]
+// CHECK: call void @llvm.memcpy.{{.*}}({{i8\*|ptr}} align 1 {{.+}}, {{i8\*|ptr}} align 4 {{.+}}, i{{[0-9]+}} 4, i1 false)
     *x = y;
 }

@@ -1,14 +1,5 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 // revisions: rpass1 cfail2
+// compile-flags: -Z query-dep-graph
 
 #![allow(warnings)]
 #![feature(rustc_attrs)]
@@ -34,20 +25,25 @@ mod x {
 mod y {
     use x;
 
-    #[rustc_clean(label="TypeckItemBody", cfg="cfail2")]
-    #[rustc_clean(label="TransCrateItem", cfg="cfail2")]
+    #[rustc_clean(
+        except="hir_owner,hir_owner_nodes,generics_of,predicates_of,type_of,fn_sig",
+        cfg="cfail2",
+    )]
     pub fn y() {
-        //[cfail2]~^ ERROR `TypeckItemBody("y::y")` not found in dep graph, but should be clean
-        //[cfail2]~| ERROR `TransCrateItem("y::y")` not found in dep graph, but should be clean
+        //[cfail2]~^ ERROR `hir_owner(y)` should be dirty but is not
+        //[cfail2]~| ERROR `hir_owner_nodes(y)` should be dirty but is not
+        //[cfail2]~| ERROR `generics_of(y)` should be dirty but is not
+        //[cfail2]~| ERROR `predicates_of(y)` should be dirty but is not
+        //[cfail2]~| ERROR `type_of(y)` should be dirty but is not
+        //[cfail2]~| ERROR `fn_sig(y)` should be dirty but is not
+        //[cfail2]~| ERROR `typeck(y)` should be clean but is not
         x::x();
     }
 }
 
 mod z {
-    #[rustc_dirty(label="TypeckItemBody", cfg="cfail2")]
-    #[rustc_dirty(label="TransCrateItem", cfg="cfail2")]
+    #[rustc_clean(except="typeck", cfg="cfail2")]
     pub fn z() {
-        //[cfail2]~^ ERROR `TypeckItemBody("z::z")` found in dep graph, but should be dirty
-        //[cfail2]~| ERROR `TransCrateItem("z::z")` found in dep graph, but should be dirty
+        //[cfail2]~^ ERROR `typeck(z)` should be dirty but is not
     }
 }

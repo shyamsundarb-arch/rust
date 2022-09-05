@@ -1,26 +1,17 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager
+// compile-flags:-Zinline-in-all-cgus
 
 #![deny(dead_code)]
+#![feature(start)]
 
-//~ TRANS_ITEM drop-glue non_generic_drop_glue::StructWithDrop[0]
-//~ TRANS_ITEM drop-glue-contents non_generic_drop_glue::StructWithDrop[0]
+//~ MONO_ITEM fn std::ptr::drop_in_place::<StructWithDrop> - shim(Some(StructWithDrop)) @@ non_generic_drop_glue-cgu.0[Internal]
 struct StructWithDrop {
     x: i32
 }
 
 impl Drop for StructWithDrop {
-    //~ TRANS_ITEM fn non_generic_drop_glue::{{impl}}[0]::drop[0]
+    //~ MONO_ITEM fn <StructWithDrop as std::ops::Drop>::drop
     fn drop(&mut self) {}
 }
 
@@ -28,14 +19,13 @@ struct StructNoDrop {
     x: i32
 }
 
-//~ TRANS_ITEM drop-glue non_generic_drop_glue::EnumWithDrop[0]
-//~ TRANS_ITEM drop-glue-contents non_generic_drop_glue::EnumWithDrop[0]
+//~ MONO_ITEM fn std::ptr::drop_in_place::<EnumWithDrop> - shim(Some(EnumWithDrop)) @@ non_generic_drop_glue-cgu.0[Internal]
 enum EnumWithDrop {
     A(i32)
 }
 
 impl Drop for EnumWithDrop {
-    //~ TRANS_ITEM fn non_generic_drop_glue::{{impl}}[1]::drop[0]
+    //~ MONO_ITEM fn <EnumWithDrop as std::ops::Drop>::drop
     fn drop(&mut self) {}
 }
 
@@ -43,8 +33,9 @@ enum EnumNoDrop {
     A(i32)
 }
 
-//~ TRANS_ITEM fn non_generic_drop_glue::main[0]
-fn main() {
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
     let _ = StructWithDrop { x: 0 }.x;
     let _ = StructNoDrop { x: 0 }.x;
     let _ = match EnumWithDrop::A(0) {
@@ -53,6 +44,6 @@ fn main() {
     let _ = match EnumNoDrop::A(0) {
         EnumNoDrop::A(x) => x
     };
-}
 
-//~ TRANS_ITEM drop-glue i8
+    0
+}

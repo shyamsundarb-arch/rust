@@ -1,17 +1,9 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager
+// compile-flags:-Zinline-in-all-cgus
 
 #![deny(dead_code)]
+#![feature(start)]
 
 struct StructWithDrop<T1, T2> {
     x: T1,
@@ -42,27 +34,25 @@ enum EnumNoDrop<T1, T2> {
 }
 
 
-struct NonGenericNoDrop(i32);
+struct NonGenericNoDrop(#[allow(unused_tuple_struct_fields)] i32);
 
-struct NonGenericWithDrop(i32);
-//~ TRANS_ITEM drop-glue generic_drop_glue::NonGenericWithDrop[0]
-//~ TRANS_ITEM drop-glue-contents generic_drop_glue::NonGenericWithDrop[0]
+struct NonGenericWithDrop(#[allow(unused_tuple_struct_fields)] i32);
+//~ MONO_ITEM fn std::ptr::drop_in_place::<NonGenericWithDrop> - shim(Some(NonGenericWithDrop)) @@ generic_drop_glue-cgu.0[Internal]
 
 impl Drop for NonGenericWithDrop {
-    //~ TRANS_ITEM fn generic_drop_glue::{{impl}}[2]::drop[0]
+    //~ MONO_ITEM fn <NonGenericWithDrop as std::ops::Drop>::drop
     fn drop(&mut self) {}
 }
 
-//~ TRANS_ITEM fn generic_drop_glue::main[0]
-fn main() {
-    //~ TRANS_ITEM drop-glue generic_drop_glue::StructWithDrop[0]<i8, char>
-    //~ TRANS_ITEM drop-glue-contents generic_drop_glue::StructWithDrop[0]<i8, char>
-    //~ TRANS_ITEM fn generic_drop_glue::{{impl}}[0]::drop[0]<i8, char>
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<StructWithDrop<i8, char>> - shim(Some(StructWithDrop<i8, char>)) @@ generic_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn <StructWithDrop<i8, char> as std::ops::Drop>::drop
     let _ = StructWithDrop { x: 0i8, y: 'a' }.x;
 
-    //~ TRANS_ITEM drop-glue generic_drop_glue::StructWithDrop[0]<&str, generic_drop_glue::NonGenericNoDrop[0]>
-    //~ TRANS_ITEM drop-glue-contents generic_drop_glue::StructWithDrop[0]<&str, generic_drop_glue::NonGenericNoDrop[0]>
-    //~ TRANS_ITEM fn generic_drop_glue::{{impl}}[0]::drop[0]<&str, generic_drop_glue::NonGenericNoDrop[0]>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<StructWithDrop<&str, NonGenericNoDrop>> - shim(Some(StructWithDrop<&str, NonGenericNoDrop>)) @@ generic_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn <StructWithDrop<&str, NonGenericNoDrop> as std::ops::Drop>::drop
     let _ = StructWithDrop { x: "&str", y: NonGenericNoDrop(0) }.y;
 
     // Should produce no drop glue
@@ -70,20 +60,18 @@ fn main() {
 
     // This is supposed to generate drop-glue because it contains a field that
     // needs to be dropped.
-    //~ TRANS_ITEM drop-glue generic_drop_glue::StructNoDrop[0]<generic_drop_glue::NonGenericWithDrop[0], f64>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<StructNoDrop<NonGenericWithDrop, f64>> - shim(Some(StructNoDrop<NonGenericWithDrop, f64>)) @@ generic_drop_glue-cgu.0[Internal]
     let _ = StructNoDrop { x: NonGenericWithDrop(0), y: 0f64 }.y;
 
-    //~ TRANS_ITEM drop-glue generic_drop_glue::EnumWithDrop[0]<i32, i64>
-    //~ TRANS_ITEM drop-glue-contents generic_drop_glue::EnumWithDrop[0]<i32, i64>
-    //~ TRANS_ITEM fn generic_drop_glue::{{impl}}[1]::drop[0]<i32, i64>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<EnumWithDrop<i32, i64>> - shim(Some(EnumWithDrop<i32, i64>)) @@ generic_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn <EnumWithDrop<i32, i64> as std::ops::Drop>::drop
     let _ = match EnumWithDrop::A::<i32, i64>(0) {
         EnumWithDrop::A(x) => x,
         EnumWithDrop::B(x) => x as i32
     };
 
-    //~ TRANS_ITEM drop-glue generic_drop_glue::EnumWithDrop[0]<f64, f32>
-    //~ TRANS_ITEM drop-glue-contents generic_drop_glue::EnumWithDrop[0]<f64, f32>
-    //~ TRANS_ITEM fn generic_drop_glue::{{impl}}[1]::drop[0]<f64, f32>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<EnumWithDrop<f64, f32>> - shim(Some(EnumWithDrop<f64, f32>)) @@ generic_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn <EnumWithDrop<f64, f32> as std::ops::Drop>::drop
     let _ = match EnumWithDrop::B::<f64, f32>(1.0) {
         EnumWithDrop::A(x) => x,
         EnumWithDrop::B(x) => x as f64
@@ -98,6 +86,6 @@ fn main() {
         EnumNoDrop::A(x) => x,
         EnumNoDrop::B(x) => x as f64
     };
-}
 
-//~ TRANS_ITEM drop-glue i8
+    0
+}

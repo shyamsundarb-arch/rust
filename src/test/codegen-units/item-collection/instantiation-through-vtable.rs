@@ -1,17 +1,8 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager -Zinline-in-all-cgus -Zmir-opt-level=0
 
 #![deny(dead_code)]
+#![feature(start)]
 
 trait Trait {
     fn foo(&self) -> u32;
@@ -27,18 +18,21 @@ impl<T> Trait for Struct<T> {
     fn bar(&self) {}
 }
 
-//~ TRANS_ITEM fn instantiation_through_vtable::main[0]
-fn main() {
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
     let s1 = Struct { _a: 0u32 };
 
-    //~ TRANS_ITEM fn instantiation_through_vtable::{{impl}}[0]::foo[0]<u32>
-    //~ TRANS_ITEM fn instantiation_through_vtable::{{impl}}[0]::bar[0]<u32>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<Struct<u32>> - shim(None) @@ instantiation_through_vtable-cgu.0[Internal]
+    //~ MONO_ITEM fn <Struct<u32> as Trait>::foo
+    //~ MONO_ITEM fn <Struct<u32> as Trait>::bar
     let _ = &s1 as &Trait;
 
     let s1 = Struct { _a: 0u64 };
-    //~ TRANS_ITEM fn instantiation_through_vtable::{{impl}}[0]::foo[0]<u64>
-    //~ TRANS_ITEM fn instantiation_through_vtable::{{impl}}[0]::bar[0]<u64>
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<Struct<u64>> - shim(None) @@ instantiation_through_vtable-cgu.0[Internal]
+    //~ MONO_ITEM fn <Struct<u64> as Trait>::foo
+    //~ MONO_ITEM fn <Struct<u64> as Trait>::bar
     let _ = &s1 as &Trait;
-}
 
-//~ TRANS_ITEM drop-glue i8
+    0
+}

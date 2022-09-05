@@ -1,33 +1,27 @@
-// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
-// ignore-tidy-linelength
-// compile-flags:-Zprint-trans-items=eager
+// compile-flags:-Zprint-mono-items=eager
+// compile-flags:-Zinline-in-all-cgus
 
 #![deny(dead_code)]
+#![feature(start)]
 
-//~ TRANS_ITEM drop-glue tuple_drop_glue::Dropped[0]
-//~ TRANS_ITEM drop-glue-contents tuple_drop_glue::Dropped[0]
+//~ MONO_ITEM fn std::ptr::drop_in_place::<Dropped> - shim(Some(Dropped)) @@ tuple_drop_glue-cgu.0[Internal]
 struct Dropped;
 
 impl Drop for Dropped {
-    //~ TRANS_ITEM fn tuple_drop_glue::{{impl}}[0]::drop[0]
+    //~ MONO_ITEM fn <Dropped as std::ops::Drop>::drop
     fn drop(&mut self) {}
 }
 
-//~ TRANS_ITEM fn tuple_drop_glue::main[0]
-fn main() {
-    //~ TRANS_ITEM drop-glue (u32, tuple_drop_glue::Dropped[0])
+//~ MONO_ITEM fn start
+#[start]
+fn start(_: isize, _: *const *const u8) -> isize {
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<(u32, Dropped)> - shim(Some((u32, Dropped))) @@ tuple_drop_glue-cgu.0[Internal]
     let x = (0u32, Dropped);
 
-    //~ TRANS_ITEM drop-glue (i16, (tuple_drop_glue::Dropped[0], bool))
-    //~ TRANS_ITEM drop-glue (tuple_drop_glue::Dropped[0], bool)
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<(i16, (Dropped, bool))> - shim(Some((i16, (Dropped, bool)))) @@ tuple_drop_glue-cgu.0[Internal]
+    //~ MONO_ITEM fn std::ptr::drop_in_place::<(Dropped, bool)> - shim(Some((Dropped, bool)))  @@ tuple_drop_glue-cgu.0[Internal]
     let x = (0i16, (Dropped, true));
+
+    0
 }
